@@ -1,0 +1,57 @@
+# Go build and test files
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go workspace file
+go.work
+
+# Environment variables
+.env
+*.env
+
+# PocketBase data
+pb_data/
+pb_migrations/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Binary files
+bin/
+dist/
+
+# Log files
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+
+# Dependencies
+vendor/
+
+# Debug files
+debug/
+
+# Coverage reports
+coverage.txt
+coverage.html
