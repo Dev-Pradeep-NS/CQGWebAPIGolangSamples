@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"go-websocket/internal/client"
 	"go-websocket/internal/models"
 	pb "go-websocket/proto/WebAPI"
@@ -71,8 +72,22 @@ func getBarUnit(barType string) uint32 {
 func handleHistoricalData(c *websocket.Conn, cqgClient *client.CQGClient, symbol string, barUnit uint32, timeRange models.TimeRange) error {
 	userName := os.Getenv("USERNAME")
 	password := os.Getenv("PASSWORD")
+	clientAppId := os.Getenv("CLIENT_APP_ID")
+	clientVersion := os.Getenv("CLIENT_VERSION")
+	protocolVersionMajor := os.Getenv("PROTOCOL_VERSION_MAJOR")
+	protocolVersionMinor := os.Getenv("PROTOCOL_VERSION_MINOR")
 
-	if err := cqgClient.Logon(userName, password); err != nil {
+	protocolMajor, err := strconv.ParseUint(protocolVersionMajor, 10, 32)
+	if err != nil {
+		return fmt.Errorf("invalid PROTOCOL_VERSION_MAJOR: %v", err)
+	}
+
+	protocolMinor, err := strconv.ParseUint(protocolVersionMinor, 10, 32)
+	if err != nil {
+		return fmt.Errorf("invalid PROTOCOL_VERSION_MINOR: %v", err)
+	}
+
+	if err := cqgClient.Logon(userName, password, clientAppId, clientVersion, uint32(protocolMajor), uint32(protocolMinor)); err != nil {
 		return err
 	}
 

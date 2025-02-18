@@ -16,7 +16,6 @@ go.work
 
 # PocketBase data
 pb_data/
-pb_migrations/
 
 # IDE specific files
 .idea/

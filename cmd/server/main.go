@@ -20,6 +20,5 @@ func main() {
 	handlers.RegisterLogonHandler(app)
 	handlers.RegisterRealtimeHandler(app)
 	handlers.RegisterHistoricalHandler(app)
-
 	log.Fatal(app.Listen(":3000"))
 }

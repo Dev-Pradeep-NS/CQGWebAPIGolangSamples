@@ -16,8 +16,9 @@ import (
 )
 
 type CQGClient struct {
-	WS       *websocket.Conn
-	BaseTime int64
+	WS               *websocket.Conn
+	BaseTime         int64
+	ContractMetadata *pb.ContractMetadata
 }
 
 func NewCQGClient() (*CQGClient, error) {
@@ -39,18 +40,18 @@ func NewCQGClient() (*CQGClient, error) {
 	return &CQGClient{WS: ws}, nil
 }
 
-func (c *CQGClient) Logon(userName, password string) error {
-	if userName == "" || password == "" {
-		return fmt.Errorf("username and password cannot be empty")
+func (c *CQGClient) Logon(userName, password, clientAppId, clientVersion string, protocolVersionMajor uint32, protocolVersionMinor uint32) error {
+	if userName == "" || password == "" || clientAppId == "" || clientVersion == "" {
+		return fmt.Errorf("neccessary creds are not provided")
 	}
 
 	logon := &pb.Logon{
 		UserName:             proto.String(userName),
 		Password:             proto.String(password),
-		ClientAppId:          proto.String("WebApiTest"),
-		ClientVersion:        proto.String("python-client-test-2-230"),
-		ProtocolVersionMajor: proto.Uint32(2),
-		ProtocolVersionMinor: proto.Uint32(230),
+		ClientAppId:          proto.String(clientAppId),
+		ClientVersion:        proto.String(clientVersion),
+		ProtocolVersionMajor: proto.Uint32(protocolVersionMajor),
+		ProtocolVersionMinor: proto.Uint32(protocolVersionMinor),
 	}
 
 	clientMsg := &pb.ClientMsg{
@@ -113,7 +114,6 @@ func (c *CQGClient) ResolveSymbol(symbolName string, msgID uint32, subscribe boo
 	if symbolName == "" {
 		return 0, fmt.Errorf("symbol name cannot be empty")
 	}
-
 	informationRequest := &pb.InformationRequest{
 		Id:        proto.Uint32(msgID),
 		Subscribe: proto.Bool(subscribe),
@@ -127,7 +127,6 @@ func (c *CQGClient) ResolveSymbol(symbolName string, msgID uint32, subscribe boo
 	}
 
 	log.Printf("Client message sent:\n%+v\n", clientMsg)
-
 	data, err := proto.Marshal(clientMsg)
 	if err != nil {
 		return 0, fmt.Errorf("marshal error: %w", err)
@@ -148,7 +147,6 @@ func (c *CQGClient) ResolveSymbol(symbolName string, msgID uint32, subscribe boo
 	}
 
 	log.Printf("Server message received:\n%+v\n", serverMsg)
-
 	if len(serverMsg.InformationReports) == 0 {
 		return 0, fmt.Errorf("no information reports received")
 	}
@@ -158,7 +156,8 @@ func (c *CQGClient) ResolveSymbol(symbolName string, msgID uint32, subscribe boo
 		if resReport.GetContractMetadata() == nil {
 			return 0, fmt.Errorf("no contract metadata in response")
 		}
-		return resReport.GetContractMetadata().GetContractId(), nil
+		c.ContractMetadata = resReport.GetContractMetadata()
+		return c.ContractMetadata.GetContractId(), nil
 	}
 
 	return 0, fmt.Errorf("symbol resolution failed")
@@ -168,11 +167,11 @@ func (c *CQGClient) SubscribeMarketData(contractID, msgID, level uint32) error {
 	if contractID == 0 {
 		return fmt.Errorf("invalid contract ID")
 	}
-
 	subscription := &pb.MarketDataSubscription{
-		ContractId: proto.Uint32(contractID),
-		RequestId:  proto.Uint32(msgID),
-		Level:      proto.Uint32(level),
+		ContractId:        proto.Uint32(contractID),
+		RequestId:         proto.Uint32(msgID),
+		Level:             proto.Uint32(level),
+		IncludePastQuotes: proto.Bool(true),
 	}
 
 	clientMsg := &pb.ClientMsg{

@@ -7,9 +7,9 @@ import (
 	"net/http"
 )
 
-const POCKETBASE_URL = "http://127.0.0.1:8090/api/collections/realtime_data/records"
+const POCKETBASE_URL = "http://127.0.0.1:8090/api/collections/market_data/records"
 
-func SaveRealtimeData(data map[string]interface{}) error {
+func SaveToPocketBase(data map[string]interface{}) error {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("error marshaling data: %v", err)
