@@ -15,23 +15,28 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// CQGClient represents a WebSocket client for connecting to CQG's trading platform
 type CQGClient struct {
-	WS               *websocket.Conn
-	BaseTime         int64
-	ContractMetadata *pb.ContractMetadata
+	WS               *websocket.Conn      // WebSocket connection
+	BaseTime         int64                // Base time received from server for time synchronization
+	ContractMetadata *pb.ContractMetadata // Metadata about the trading contract
 }
 
+// NewCQGClient creates and initializes a new CQG client with WebSocket connection
 func NewCQGClient() (*CQGClient, error) {
+	// Load environment variables from .env file
 	err := godotenv.Load(".env")
 	if err != nil {
 		log.Println("Error loading .env file")
 	}
 
+	// Get hostname from environment variables
 	hostName := os.Getenv("HOST_NAME")
 	if hostName == "" {
 		return nil, fmt.Errorf("HOST_NAME environment variable not set")
 	}
 
+	// Establish WebSocket connection
 	ws, _, err := websocket.DefaultDialer.Dial(hostName, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to establish WebSocket connection: %w", err)
@@ -40,11 +45,14 @@ func NewCQGClient() (*CQGClient, error) {
 	return &CQGClient{WS: ws}, nil
 }
 
+// Logon authenticates the client with the CQG server
 func (c *CQGClient) Logon(userName, password, clientAppId, clientVersion string, protocolVersionMajor uint32, protocolVersionMinor uint32) error {
+	// Validate required credentials
 	if userName == "" || password == "" || clientAppId == "" || clientVersion == "" {
 		return fmt.Errorf("neccessary creds are not provided")
 	}
 
+	// Create logon message
 	logon := &pb.Logon{
 		UserName:             proto.String(userName),
 		Password:             proto.String(password),
@@ -58,6 +66,7 @@ func (c *CQGClient) Logon(userName, password, clientAppId, clientVersion string,
 		Logon: logon,
 	}
 
+	// Marshal and send logon message
 	data, err := proto.Marshal(clientMsg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal logon message: %w", err)
@@ -67,6 +76,7 @@ func (c *CQGClient) Logon(userName, password, clientAppId, clientVersion string,
 		return fmt.Errorf("failed to send logon message: %w", err)
 	}
 
+	// Read and process server response
 	_, msg, err := c.WS.ReadMessage()
 	if err != nil {
 		return fmt.Errorf("websocket read error: %w", err)
@@ -79,6 +89,7 @@ func (c *CQGClient) Logon(userName, password, clientAppId, clientVersion string,
 
 	log.Printf("Raw server response: %+v", serverMsg)
 
+	// Handle logon result
 	if logonResult := serverMsg.GetLogonResult(); logonResult != nil {
 		log.Printf("Logon result code: %d, message: %s",
 			logonResult.GetResultCode(),
@@ -92,6 +103,7 @@ func (c *CQGClient) Logon(userName, password, clientAppId, clientVersion string,
 			)
 		}
 
+		// Parse and store base time for time synchronization
 		baseTimeStr := logonResult.GetBaseTime()
 		if baseTimeStr == "" {
 			return fmt.Errorf("empty base time received from server")
@@ -110,10 +122,13 @@ func (c *CQGClient) Logon(userName, password, clientAppId, clientVersion string,
 	return nil
 }
 
+// ResolveSymbol resolves a trading symbol and returns its contract ID
 func (c *CQGClient) ResolveSymbol(symbolName string, msgID uint32, subscribe bool) (uint32, error) {
 	if symbolName == "" {
 		return 0, fmt.Errorf("symbol name cannot be empty")
 	}
+
+	// Create symbol resolution request
 	informationRequest := &pb.InformationRequest{
 		Id:        proto.Uint32(msgID),
 		Subscribe: proto.Bool(subscribe),
@@ -127,6 +142,8 @@ func (c *CQGClient) ResolveSymbol(symbolName string, msgID uint32, subscribe boo
 	}
 
 	log.Printf("Client message sent:\n%+v\n", clientMsg)
+
+	// Marshal and send request
 	data, err := proto.Marshal(clientMsg)
 	if err != nil {
 		return 0, fmt.Errorf("marshal error: %w", err)
@@ -136,6 +153,7 @@ func (c *CQGClient) ResolveSymbol(symbolName string, msgID uint32, subscribe boo
 		return 0, fmt.Errorf("write message error: %w", err)
 	}
 
+	// Read and process server response
 	_, msg, err := c.WS.ReadMessage()
 	if err != nil {
 		return 0, fmt.Errorf("read message error: %w", err)
@@ -151,6 +169,7 @@ func (c *CQGClient) ResolveSymbol(symbolName string, msgID uint32, subscribe boo
 		return 0, fmt.Errorf("no information reports received")
 	}
 
+	// Extract contract metadata from response
 	infoReport := serverMsg.InformationReports[0]
 	if resReport := infoReport.GetSymbolResolutionReport(); resReport != nil {
 		if resReport.GetContractMetadata() == nil {
@@ -163,10 +182,13 @@ func (c *CQGClient) ResolveSymbol(symbolName string, msgID uint32, subscribe boo
 	return 0, fmt.Errorf("symbol resolution failed")
 }
 
+// SubscribeMarketData subscribes to market data updates for a specific contract
 func (c *CQGClient) SubscribeMarketData(contractID, msgID, level uint32) error {
 	if contractID == 0 {
 		return fmt.Errorf("invalid contract ID")
 	}
+
+	// Create market data subscription request
 	subscription := &pb.MarketDataSubscription{
 		ContractId:        proto.Uint32(contractID),
 		RequestId:         proto.Uint32(msgID),
@@ -178,6 +200,7 @@ func (c *CQGClient) SubscribeMarketData(contractID, msgID, level uint32) error {
 		MarketDataSubscriptions: []*pb.MarketDataSubscription{subscription},
 	}
 
+	// Marshal and send subscription request
 	data, err := proto.Marshal(clientMsg)
 	if err != nil {
 		return fmt.Errorf("marshal error: %w", err)
@@ -190,6 +213,7 @@ func (c *CQGClient) SubscribeMarketData(contractID, msgID, level uint32) error {
 	return nil
 }
 
+// RequestBarTime requests historical bar data for a specific time range
 func (c *CQGClient) RequestBarTime(msgID uint32, contractID uint32, barUnit uint32, timeRange models.TimeRange) error {
 	if contractID == 0 {
 		return fmt.Errorf("invalid contract ID")
@@ -202,6 +226,7 @@ func (c *CQGClient) RequestBarTime(msgID uint32, contractID uint32, barUnit uint
 	var barsNumber int
 	var intervalMillis int64
 
+	// Calculate number of bars and interval based on bar unit and time range
 	switch barUnit {
 	case models.DailyIndex:
 		intervalMillis = models.MillisecondsInDay
@@ -246,6 +271,7 @@ func (c *CQGClient) RequestBarTime(msgID uint32, contractID uint32, barUnit uint
 		return fmt.Errorf("invalid bar unit")
 	}
 
+	// Calculate time range and create request
 	currentTimeMillis := time.Now().UTC().UnixNano() / int64(time.Millisecond)
 	fromUtcTime := currentTimeMillis - c.BaseTime - (int64(barsNumber) * intervalMillis)
 
@@ -264,6 +290,7 @@ func (c *CQGClient) RequestBarTime(msgID uint32, contractID uint32, barUnit uint
 
 	log.Printf("Requesting historical data:\n%s", PrettyPrintProto(clientMsg))
 
+	// Marshal and send request
 	data, err := proto.Marshal(clientMsg)
 	if err != nil {
 		return fmt.Errorf("marshal error: %w", err)
@@ -276,6 +303,7 @@ func (c *CQGClient) RequestBarTime(msgID uint32, contractID uint32, barUnit uint
 	return nil
 }
 
+// HandleMessages continuously reads and processes incoming server messages
 func (c *CQGClient) HandleMessages(handler func(*pb.ServerMsg)) {
 	if handler == nil {
 		log.Printf("error: message handler is nil")
@@ -299,10 +327,12 @@ func (c *CQGClient) HandleMessages(handler func(*pb.ServerMsg)) {
 	}
 }
 
+// PrettyPrintProto formats a protobuf message for readable output
 func PrettyPrintProto(msg proto.Message) string {
 	return prototext.Format(msg)
 }
 
+// Close cleanly closes the WebSocket connection
 func (c *CQGClient) Close() {
 	if c.WS != nil {
 		c.WS.Close()

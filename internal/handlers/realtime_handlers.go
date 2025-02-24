@@ -14,11 +14,14 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// RegisterRealtimeHandler registers the WebSocket endpoint for real-time market data
 func RegisterRealtimeHandler(app *fiber.App) {
 	app.Get("/realtime", websocket.New(handleRealtime))
 }
 
+// handleRealtime manages the WebSocket connection and initializes the market data stream
 func handleRealtime(c *websocket.Conn) {
+	// Validate required symbol parameter
 	symbol := c.Query("symbol")
 	if symbol == "" {
 		c.WriteJSON(fiber.Map{"error": "Symbol parameter is required"})
@@ -26,6 +29,7 @@ func handleRealtime(c *websocket.Conn) {
 		return
 	}
 
+	// Initialize CQG client connection
 	cqgClient, err := client.NewCQGClient()
 	if err != nil {
 		c.WriteJSON(fiber.Map{"error": "Connection failed: " + err.Error()})
@@ -34,6 +38,7 @@ func handleRealtime(c *websocket.Conn) {
 	}
 	defer cqgClient.Close()
 
+	// Get authentication and connection parameters from environment variables
 	userName := os.Getenv("USERNAME")
 	password := os.Getenv("PASSWORD")
 	clientAppId := os.Getenv("CLIENT_APP_ID")
@@ -41,6 +46,7 @@ func handleRealtime(c *websocket.Conn) {
 	protocolVersionMajor := os.Getenv("PROTOCOL_VERSION_MAJOR")
 	protocolVersionMinor := os.Getenv("PROTOCOL_VERSION_MINOR")
 
+	// Parse protocol version numbers
 	protocolMajor, err := strconv.ParseUint(protocolVersionMajor, 10, 32)
 	if err != nil {
 		c.WriteJSON(fiber.Map{"error": "Invalid PROTOCOL_VERSION_MAJOR: " + err.Error()})
@@ -55,12 +61,14 @@ func handleRealtime(c *websocket.Conn) {
 		return
 	}
 
+	// Authenticate with CQG
 	if err := cqgClient.Logon(userName, password, clientAppId, clientVersion, uint32(protocolMajor), uint32(protocolMinor)); err != nil {
 		c.WriteJSON(fiber.Map{"error": "Logon failed: " + err.Error()})
 		c.Close()
 		return
 	}
 
+	// Resolve symbol to contract ID and subscribe to market data
 	contractID, err := cqgClient.ResolveSymbol(symbol, 1, true)
 	if err != nil {
 		c.WriteJSON(fiber.Map{"error": "Symbol resolution failed: " + err.Error()})
@@ -72,8 +80,12 @@ func handleRealtime(c *websocket.Conn) {
 		c.Close()
 		return
 	}
+
+	// Start message handling goroutine
 	done := make(chan bool)
 	go handleRealtimeMessages(c, cqgClient, done, contractID)
+
+	// Keep connection alive until client disconnects
 	for {
 		if _, _, err := c.ReadMessage(); err != nil {
 			log.Println("client read:", err)
@@ -83,10 +95,13 @@ func handleRealtime(c *websocket.Conn) {
 	<-done
 }
 
+// handleRealtimeMessages processes incoming market data messages and sends updates to the client
 func handleRealtimeMessages(c *websocket.Conn, cqgClient *client.CQGClient, done chan bool, contractID uint32) {
+	// Get price scale for the contract
 	priceScale := cqgClient.ContractMetadata.GetCorrectPriceScale()
 	log.Printf("Using price scale: %v for contract: %v", priceScale, contractID)
 
+	// Initialize market values storage
 	lastMarketValues := fiber.Map{
 		"open":    0.0,
 		"high":    0.0,
@@ -100,6 +115,7 @@ func handleRealtimeMessages(c *websocket.Conn, cqgClient *client.CQGClient, done
 
 	var firstTradeOfSession bool = true
 
+	// Main message processing loop
 	for {
 		_, msg, err := cqgClient.WS.ReadMessage()
 		if err != nil {
@@ -110,14 +126,17 @@ func handleRealtimeMessages(c *websocket.Conn, cqgClient *client.CQGClient, done
 			return
 		}
 
+		// Unmarshal protobuf message
 		serverMsg := &pb.ServerMsg{}
 		if err := proto.Unmarshal(msg, serverMsg); err != nil {
 			log.Println("unmarshal:", err)
 			continue
 		}
 
+		// Process real-time market data
 		if rtData := serverMsg.GetRealTimeMarketData(); rtData != nil {
 			for _, rtDataEntry := range rtData {
+				// Initialize response structure
 				response := fiber.Map{
 					"bids":          make([]fiber.Map, 0),
 					"asks":          make([]fiber.Map, 0),
@@ -129,11 +148,13 @@ func handleRealtimeMessages(c *websocket.Conn, cqgClient *client.CQGClient, done
 
 				trades := make([]fiber.Map, 0)
 
+				// Process quotes (trades)
 				for _, quote := range rtDataEntry.Quotes {
 					if quote.GetType() == uint32(pb.Quote_TYPE_TRADE) {
 						price := float64(quote.GetScaledPrice()) * priceScale
 						volume := quote.Volume.GetSignificand()
 
+						// Update session statistics
 						if firstTradeOfSession {
 							lastMarketValues["open"] = price
 							firstTradeOfSession = false
@@ -158,6 +179,7 @@ func handleRealtimeMessages(c *websocket.Conn, cqgClient *client.CQGClient, done
 					}
 				}
 
+				// Process market values
 				if len(rtDataEntry.MarketValues) > 0 {
 					for _, mv := range rtDataEntry.MarketValues {
 						if mv.GetDayIndex() == 0 && (mv.GetScaledLastPriceNoSettlement() != 0 || mv.TotalVolume.GetSignificand() != 0) {
@@ -174,6 +196,7 @@ func handleRealtimeMessages(c *websocket.Conn, cqgClient *client.CQGClient, done
 					}
 				}
 
+				// Process trade corrections
 				corrections := make([]fiber.Map, 0)
 				for _, corr := range rtDataEntry.Corrections {
 					corrections = append(corrections, fiber.Map{
@@ -185,6 +208,7 @@ func handleRealtimeMessages(c *websocket.Conn, cqgClient *client.CQGClient, done
 					})
 				}
 
+				// Process depth of market data
 				if dom := rtDataEntry.GetDetailedDom(); dom != nil {
 					response["dom"] = fiber.Map{
 						"price_levels": processDOMLevels(dom, priceScale),
@@ -194,8 +218,10 @@ func handleRealtimeMessages(c *websocket.Conn, cqgClient *client.CQGClient, done
 				response["trades"] = trades
 				response["corrections"] = corrections
 
+				// Send update to client
 				c.WriteJSON(response)
 
+				// Save trade data to PocketBase if valid
 				if len(trades) > 0 && trades[0]["utc_time"].(int64) > 0 {
 					if err := services.SaveToPocketBase(response); err != nil {
 						log.Println("Failed to save data into pocketbase:", err)
@@ -206,6 +232,7 @@ func handleRealtimeMessages(c *websocket.Conn, cqgClient *client.CQGClient, done
 	}
 }
 
+// processDOMLevels converts depth of market data into a structured format
 func processDOMLevels(dom *pb.DetailedDOM, priceScale float64) []fiber.Map {
 	var levels []fiber.Map
 	for _, level := range dom.GetPriceLevels() {
