@@ -20,7 +20,7 @@ func main() {
 	app := fiber.New()
 
 	// Register route handlers for different endpoints
-	handlers.RegisterLogonHandler(app)      // Authentication endpoints
+	handlers.RegisterHandler(app)           // Authentication endpoints
 	handlers.RegisterRealtimeHandler(app)   // Real-time data endpoints
 	handlers.RegisterHistoricalHandler(app) // Historical data endpoints
 

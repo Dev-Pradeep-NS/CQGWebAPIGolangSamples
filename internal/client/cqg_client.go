@@ -122,6 +122,42 @@ func (c *CQGClient) Logon(userName, password, clientAppId, clientVersion string,
 	return nil
 }
 
+// Logoff sends a logoff request to the CQG server to terminate the session
+func (c *CQGClient) Logoff() error {
+	logoff := &pb.Logoff{
+		TextMessage: proto.String("logoff test"),
+	}
+
+	clientMsg := &pb.ClientMsg{
+		Logoff: logoff,
+	}
+
+	// Marshal the client message to binary format
+	data, err := proto.Marshal(clientMsg)
+	if err != nil {
+		return fmt.Errorf("marshal error: %w", err)
+	}
+
+	// Send the logoff message over websocket connection
+	if err := c.WS.WriteMessage(websocket.BinaryMessage, data); err != nil {
+		return fmt.Errorf("write message error: %w", err)
+	}
+	// Read and process server response
+	_, msg, err := c.WS.ReadMessage()
+	if err != nil {
+		return fmt.Errorf("websocket read error: %w", err)
+	}
+
+	serverMsg := &pb.ServerMsg{}
+	if err := proto.Unmarshal(msg, serverMsg); err != nil {
+		return fmt.Errorf("protobuf unmarshal error: %w", err)
+	}
+
+	log.Printf("Raw server response: %+v", serverMsg)
+
+	return nil
+}
+
 // ResolveSymbol resolves a trading symbol and returns its contract ID
 func (c *CQGClient) ResolveSymbol(symbolName string, msgID uint32, subscribe bool) (uint32, error) {
 	if symbolName == "" {
@@ -214,7 +250,7 @@ func (c *CQGClient) SubscribeMarketData(contractID, msgID, level uint32) error {
 }
 
 // RequestBarTime requests historical bar data for a specific time range
-func (c *CQGClient) RequestBarTime(msgID uint32, contractID uint32, barUnit uint32, timeRange models.TimeRange) error {
+func (c *CQGClient) RequestBarTime(msgID uint32, contractID uint32, barUnit uint32, timeRange models.TimeRange, requestType uint32) error {
 	if contractID == 0 {
 		return fmt.Errorf("invalid contract ID")
 	}
@@ -282,6 +318,7 @@ func (c *CQGClient) RequestBarTime(msgID uint32, contractID uint32, barUnit uint
 			BarUnit:     proto.Uint32(barUnit),
 			FromUtcTime: proto.Int64(fromUtcTime),
 		},
+		RequestType: proto.Uint32(requestType),
 	}
 
 	clientMsg := &pb.ClientMsg{

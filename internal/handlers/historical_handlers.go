@@ -110,8 +110,9 @@ func handleHistoricalData(c *websocket.Conn, cqgClient *client.CQGClient, symbol
 	}
 
 	// Request historical bar data
+	// requestTYpe => 2 -> subscribe, 3 -> drop, 1 -> get
 	msgID := uint32(2)
-	if err := cqgClient.RequestBarTime(msgID, contractID, barUnit, timeRange); err != nil {
+	if err := cqgClient.RequestBarTime(msgID, contractID, barUnit, timeRange, 2); err != nil {
 		return err
 	}
 

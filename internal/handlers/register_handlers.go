@@ -10,8 +10,9 @@ import (
 )
 
 // RegisterLogonHandler registers the logon endpoint with the Fiber application
-func RegisterLogonHandler(app *fiber.App) {
+func RegisterHandler(app *fiber.App) {
 	app.Get("/logon", handleLogon)
+	app.Get("/logoff", handleLogoff)
 }
 
 // handleLogon processes the logon request by retrieving credentials and client information
@@ -67,5 +68,31 @@ func handleLogon(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"success": true,
 		"message": "Logon successful",
+	})
+}
+
+func handleLogoff(c *fiber.Ctx) error {
+	// Create a new CQG client instance
+	cqgClient, err := client.NewCQGClient()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "Connection failed: " + err.Error(),
+		})
+	}
+
+	// Attempt to log off from CQG
+	err = cqgClient.Logoff()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   "Logoff failed: " + err.Error(),
+		})
+	}
+
+	// Return success response if logoff is successful
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "Logoff successful",
 	})
 }
