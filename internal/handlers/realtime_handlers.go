@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/websocket/v2"
@@ -95,6 +96,26 @@ func handleRealtime(c *websocket.Conn) {
 	<-done
 }
 
+func convertUTCToIST(utcTime int64) string {
+	// Skip invalid timestamps
+	if utcTime <= 0 {
+		return ""
+	}
+
+	// Convert UTC Unix timestamp to time.Time
+	utc := time.Unix(utcTime, 0)
+
+	// Define IST location
+	ist, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		return utc.Format("2006-01-02 15:04:05 MST")
+	}
+
+	// Convert to IST
+	istTime := utc.In(ist)
+	return istTime.Format("02-01-2006 15:04:05 IST")
+}
+
 // handleRealtimeMessages processes incoming market data messages and sends updates to the client
 func handleRealtimeMessages(c *websocket.Conn, cqgClient *client.CQGClient, done chan bool, contractID uint32) {
 	// Get price scale for the contract
@@ -153,29 +174,34 @@ func handleRealtimeMessages(c *websocket.Conn, cqgClient *client.CQGClient, done
 					if quote.GetType() == uint32(pb.Quote_TYPE_TRADE) {
 						price := float64(quote.GetScaledPrice()) * priceScale
 						volume := quote.Volume.GetSignificand()
+						utcTime := quote.GetQuoteUtcTime()
 
-						// Update session statistics
-						if firstTradeOfSession {
-							lastMarketValues["open"] = price
-							firstTradeOfSession = false
+						if utcTime > 0 {
+							// Update session statistics
+							if firstTradeOfSession {
+								lastMarketValues["open"] = price
+								firstTradeOfSession = false
+							}
+
+							if price > lastMarketValues["high"].(float64) || lastMarketValues["high"].(float64) == 0 {
+								lastMarketValues["high"] = price
+							}
+							if price < lastMarketValues["low"].(float64) || lastMarketValues["low"].(float64) == 0 {
+								lastMarketValues["low"] = price
+							}
+
+							lastMarketValues["last"] = price
+							lastMarketValues["close"] = price
+							lastMarketValues["volume"] = lastMarketValues["volume"].(int64) + volume
+							istTime := convertUTCToIST(utcTime)
+
+							trades = append(trades, fiber.Map{
+								"price":    fmt.Sprintf("%.4f", price),
+								"volume":   volume,
+								"utc_time": utcTime,
+								"ist_time": istTime,
+							})
 						}
-
-						if price > lastMarketValues["high"].(float64) || lastMarketValues["high"].(float64) == 0 {
-							lastMarketValues["high"] = price
-						}
-						if price < lastMarketValues["low"].(float64) || lastMarketValues["low"].(float64) == 0 {
-							lastMarketValues["low"] = price
-						}
-
-						lastMarketValues["last"] = price
-						lastMarketValues["close"] = price
-						lastMarketValues["volume"] = lastMarketValues["volume"].(int64) + volume
-
-						trades = append(trades, fiber.Map{
-							"price":    fmt.Sprintf("%.4f", price),
-							"volume":   volume,
-							"utc_time": quote.GetQuoteUtcTime(),
-						})
 					}
 				}
 
@@ -219,10 +245,11 @@ func handleRealtimeMessages(c *websocket.Conn, cqgClient *client.CQGClient, done
 				response["corrections"] = corrections
 
 				// Send update to client
-				c.WriteJSON(response)
+				// Only send update if there are valid trades
+				if len(trades) > 0 {
+					c.WriteJSON(response)
 
-				// Save trade data to PocketBase if valid
-				if len(trades) > 0 && trades[0]["utc_time"].(int64) > 0 {
+					// Save to PocketBase
 					if err := services.SaveToPocketBase(response); err != nil {
 						log.Println("Failed to save data into pocketbase:", err)
 					}

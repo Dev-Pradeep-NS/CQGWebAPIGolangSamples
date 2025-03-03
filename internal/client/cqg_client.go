@@ -226,10 +226,9 @@ func (c *CQGClient) SubscribeMarketData(contractID, msgID, level uint32) error {
 
 	// Create market data subscription request
 	subscription := &pb.MarketDataSubscription{
-		ContractId:        proto.Uint32(contractID),
-		RequestId:         proto.Uint32(msgID),
-		Level:             proto.Uint32(level),
-		IncludePastQuotes: proto.Bool(true),
+		ContractId: proto.Uint32(contractID),
+		RequestId:  proto.Uint32(msgID),
+		Level:      proto.Uint32(level),
 	}
 
 	clientMsg := &pb.ClientMsg{
