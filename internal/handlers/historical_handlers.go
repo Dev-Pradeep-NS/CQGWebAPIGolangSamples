@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/websocket/v2"
@@ -112,7 +113,7 @@ func handleHistoricalData(c *websocket.Conn, cqgClient *client.CQGClient, symbol
 	// Request historical bar data
 	// requestTYpe => 2 -> subscribe, 3 -> drop, 1 -> get
 	msgID := uint32(2)
-	if err := cqgClient.RequestBarTime(msgID, contractID, barUnit, timeRange, 2); err != nil {
+	if err := cqgClient.RequestBarTime(msgID, contractID, barUnit, timeRange, 1); err != nil {
 		return err
 	}
 
@@ -176,11 +177,38 @@ func processHistoricalMessages(c *websocket.Conn, cqgClient *client.CQGClient, d
 // createHistoricalResponse creates a map of time bar report data
 // to be sent to the client
 func createHistoricalResponse(report *pb.TimeBarReport) map[string]interface{} {
+	loc, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		// Fallback: if location loading fails, use UTC
+		loc = time.UTC
+	}
+
+	// Convert each bar to include IST time
+	newBars := make([]map[string]interface{}, 0, len(report.GetTimeBars()))
+	for _, bar := range report.GetTimeBars() {
+		utcTime := time.Unix(int64(bar.GetBarUtcTime()), 0).UTC()
+		istTime := utcTime.In(loc).Format("2006-01-02 15:04:05")
+
+		// Build a new map for this bar, copying available fields and adding the IST time.
+		barMap := map[string]interface{}{
+			"bar_utc_time":       bar.GetBarUtcTime(),
+			"bar_ist_time":       istTime,
+			"scaled_open_price":  bar.GetScaledOpenPrice(),
+			"scaled_high_price":  bar.GetScaledHighPrice(),
+			"scaled_low_price":   bar.GetScaledLowPrice(),
+			"scaled_close_price": bar.GetScaledClosePrice(),
+			"volume":             bar.GetVolume(), // if volume is a nested message, depending on your needs you may have to extract its fields
+			"tick_volume":        bar.GetTickVolume(),
+		}
+
+		newBars = append(newBars, barMap)
+	}
+
 	return map[string]interface{}{
 		"request_id":         report.GetRequestId(),
 		"status_code":        report.GetStatusCode(),
 		"up_to_utc_time":     report.GetUpToUtcTime(),
 		"is_report_complete": report.GetIsReportComplete(),
-		"bars":               report.GetTimeBars(),
+		"bars":               newBars,
 	}
 }

@@ -151,13 +151,13 @@ wscat -c "ws://localhost:3000/realtime?symbol=ZUC"
 ### Historical Bar Data
 ```bash
 # Hourly bars for last 2 days
-wscat -c "ws://localhost:3000/historical?symbol=EUC&barType=hourly&period=day&number=2"
+wscat -c "ws://localhost:3000/historical?symbol=ZUC&barType=hourly&period=day&number=2"
 
 # Minutely bars for last day
-wscat -c "ws://localhost:3000/historical?symbol=EUC&barType=minutely&period=day&number=1"
+wscat -c "ws://localhost:3000/historical?symbol=ZUC&barType=minutely&period=day&number=1"
 
 # Daily bars for last month
-wscat -c "ws://localhost:3000/historical?symbol=EUC&barType=daily&period=month&number=1"
+wscat -c "ws://localhost:3000/historical?symbol=ZUC&barType=daily&period=month&number=1"
 ```
 
 **Parameters**:

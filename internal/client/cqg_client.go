@@ -105,6 +105,7 @@ func (c *CQGClient) Logon(userName, password, clientAppId, clientVersion string,
 
 		// Parse and store base time for time synchronization
 		baseTimeStr := logonResult.GetBaseTime()
+		log.Print("baseTimeStr", baseTimeStr)
 		if baseTimeStr == "" {
 			return fmt.Errorf("empty base time received from server")
 		}
